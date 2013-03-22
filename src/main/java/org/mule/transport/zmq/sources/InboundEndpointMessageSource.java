@@ -312,6 +312,7 @@ public class InboundEndpointMessageSource implements Runnable, SourceCallback, F
         } catch (MessagingException e) {
             flowConstruct.getExceptionListener().handleException(e, e.getEvent());
         } catch (Exception e) {
+            logger.warn("Exception using source: "+transformedAddress);
             muleContext.getExceptionListener().handleException(e);
         } finally {
             if (connection != null) {

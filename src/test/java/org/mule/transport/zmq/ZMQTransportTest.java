@@ -158,8 +158,6 @@ public class ZMQTransportTest extends FunctionalTestCase implements EventCallbac
         assertFalse(zmqSocket.hasReceiveMore());
 
         zmqSocket.close();
-        logger.warn("############ FINISHED TEST!!!");
-
     }
 
     @Test
@@ -181,6 +179,7 @@ public class ZMQTransportTest extends FunctionalTestCase implements EventCallbac
 
     @Test
     public void testMultipleSources() throws Exception {
+
         MuleClient client = new MuleClient(muleContext);
 
         ZMQ.Socket zmqSocket = zmqContext.socket(ZMQ.PUB);
@@ -205,6 +204,7 @@ public class ZMQTransportTest extends FunctionalTestCase implements EventCallbac
     @Test
     @Ignore
     public void testRequestResponseOnOutboundBind() throws Exception {
+
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -221,6 +221,9 @@ public class ZMQTransportTest extends FunctionalTestCase implements EventCallbac
 
     @Test
     public void testPullOnOutboundBind() throws Exception {
+
+        logger.warn("Running test with socket: "+pullOnOutboundBindFlowPort.getNumber());
+
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -237,6 +240,7 @@ public class ZMQTransportTest extends FunctionalTestCase implements EventCallbac
 
     @Test
     public void testPushConnect() throws Exception {
+
         final CountDownLatch messageLatch = new Latch();
 
         class Puller implements Runnable {
@@ -267,6 +271,7 @@ public class ZMQTransportTest extends FunctionalTestCase implements EventCallbac
 
     @Test
     public void testPullOnOutboundConnect() throws Exception {
+
         new Thread(new Runnable() {
             @Override
             public void run() {

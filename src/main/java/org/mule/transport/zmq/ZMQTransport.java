@@ -149,10 +149,12 @@ public class ZMQTransport {
             }
         }
         catch (InterruptedException e) {
+            logger.warn("Terminating after interrupt.");
             executorService.shutdownNow();
             Thread.currentThread().interrupt();
         }
-        zmqContext.term();
+        logger.warn("Destroy complete.");
+        //zmqContext.term();
     }
 
     public boolean isConnected() {
@@ -500,6 +502,7 @@ public class ZMQTransport {
                 }
 
             } catch (Exception e) {
+                logger.warn("Exception using source: "+address);
                 throw new RuntimeException(e);
             }
         }
@@ -534,6 +537,7 @@ public class ZMQTransport {
                 }
 
             } catch (Exception e) {
+                logger.warn("Exception using source: "+address);
                 throw new RuntimeException(e);
             }
         }
