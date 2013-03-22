@@ -28,13 +28,22 @@ import org.mule.transport.zmq.helper.ZMQResourceFactory;
 import org.mule.transport.zmq.helper.ZMQSocketConfig;
 import org.mule.transport.zmq.helper.ZMQURIConstants;
 import org.mule.util.concurrent.ThreadNameHelper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.zeromq.ZMQ;
 import org.zeromq.ZMQQueue;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class ZMQTransport {
+
+    private final Logger logger = LoggerFactory.getLogger(ZMQTransport.class.getName());
 
     public enum ExchangePattern {
         REQUEST_RESPONSE, ONE_WAY, PUBLISH, SUBSCRIBE, PUSH, PULL
@@ -49,6 +58,7 @@ public class ZMQTransport {
     private final static String REQUESTOR_WORKER_ADDRESS = "inproc://requestor";
     private final static String OUTBOUND_RECEIVER_WORKER_ADDRESS = "inproc://receivers";
     private final static int WAIT_SOCKET_BIND = 10;
+    private final static int DEFAULT_POLL_TIMEOUT = 500;
 
     private MuleContext muleContext;
     private ZMQ.Context zmqContext;
@@ -57,6 +67,8 @@ public class ZMQTransport {
     private ThreadingProfile receiverThreadingProfile;
     private Integer ioThreads;
     private Boolean connected = false;
+    private Integer pollTimeout = DEFAULT_POLL_TIMEOUT;
+    private ExecutorService executorService;
 
     public Integer getIoThreads() {
         return ioThreads;
@@ -64,6 +76,14 @@ public class ZMQTransport {
 
     public void setIoThreads(Integer ioThreads) {
         this.ioThreads = ioThreads;
+    }
+
+    public Integer getPollTimeout() {
+        return pollTimeout;
+    }
+
+    public void setPollTimeout(Integer pollTimeout) {
+        this.pollTimeout = pollTimeout;
     }
 
     public void setReceiverThreadingProfile(ThreadingProfile receiverThreadingProfile) {
@@ -87,11 +107,11 @@ public class ZMQTransport {
                     break;
 
                 case PUBLISH:
-                    new Thread(new DispatcherWorker(multipart, address, Enum.valueOf(ZMQURIConstants.SocketOperation.class, socketOperation.toString()), ZMQURIConstants.SocketType.PUB)).start();
+                    startWorker(new DispatcherWorker(multipart, address, Enum.valueOf(ZMQURIConstants.SocketOperation.class, socketOperation.toString()), ZMQURIConstants.SocketType.PUB));
                     break;
 
                 case ONE_WAY:
-                    new Thread(new DispatcherWorker(multipart, address, Enum.valueOf(ZMQURIConstants.SocketOperation.class, socketOperation.toString()), ZMQURIConstants.SocketType.PUSH)).start();
+                    startWorker(new DispatcherWorker(multipart, address, Enum.valueOf(ZMQURIConstants.SocketOperation.class, socketOperation.toString()), ZMQURIConstants.SocketType.PUSH));
                     break;
 
                 case SUBSCRIBE:
@@ -99,7 +119,7 @@ public class ZMQTransport {
                     break;
 
                 case PUSH:
-                    new Thread(new DispatcherWorker(multipart, address, Enum.valueOf(ZMQURIConstants.SocketOperation.class, socketOperation.toString()), ZMQURIConstants.SocketType.PUSH)).start();
+                    startWorker(new DispatcherWorker(multipart, address, Enum.valueOf(ZMQURIConstants.SocketOperation.class, socketOperation.toString()), ZMQURIConstants.SocketType.PUSH));
                     break;
 
                 case PULL:
@@ -114,9 +134,24 @@ public class ZMQTransport {
     public void initialise() throws TransformerException {
         zmqContext = ZMQResourceFactory.createContext(ioThreads != null ? ioThreads : 1);
         objectToByteArrayTransformer = muleContext.getRegistry().lookupTransformer(DataTypeFactory.create((Object.class)), DataTypeFactory.create((byte[].class)));
+        executorService = Executors.newCachedThreadPool(new TransportThreadFactory());
     }
 
     public void destroy() {
+        executorService.shutdown();
+        try {
+            if (!executorService.awaitTermination(500, TimeUnit.MILLISECONDS)) {
+                executorService.shutdownNow(); // Cancel currently executing tasks
+                if (!executorService.awaitTermination(1000, TimeUnit.MILLISECONDS)) {
+                    logger.warn("Service threads did not terminate cleanly.");
+                }
+
+            }
+        }
+        catch (InterruptedException e) {
+            executorService.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
         zmqContext.term();
     }
 
@@ -232,7 +267,7 @@ public class ZMQTransport {
                                                                                   setSocketType(ZMQURIConstants.SocketType.PULL), zmqContext);
 
                 poll(zmqSocket, multipart, callback);
-
+                break;
             case SUBSCRIBE:
 
                 zmqSocket = ZMQResourceFactory.createSocket(new ZMQSocketConfig().setSocketOperation(Enum.valueOf(ZMQURIConstants.SocketOperation.class, socketOperation.toString())).
@@ -242,7 +277,7 @@ public class ZMQTransport {
 
 
                 poll(zmqSocket, multipart, callback);
-
+                break;
             case PUBLISH:
                 throw new UnsupportedOperationException();
 
@@ -257,7 +292,7 @@ public class ZMQTransport {
                                                                                   setIdentity(identity), zmqContext);
 
                 poll(zmqSocket, multipart, callback);
-
+                break;
             default:
                 throw new UnsupportedOperationException();
         }
@@ -276,13 +311,19 @@ public class ZMQTransport {
         }
     }
 
+    private void startWorker(ZMQWorker zmqWorker) throws ConnectionException {
+        executorService.execute(zmqWorker);
+    }
+
     private void poll(ZMQ.Socket zmqSocket, Boolean multipart, SourceCallback callback) throws Exception {
         ZMQ.Poller poller = ZMQResourceFactory.createPoller(zmqSocket, zmqContext);
         WorkManager workManager = initReceiverWorkManager();
 
-        while (true) {
-            poller.poll();
-            workManager.scheduleWork(new InboundWorker(multipart, callback, receive(zmqSocket)));
+        while (true && ! Thread.interrupted()) {
+            int signaled = poller.poll(pollTimeout.longValue());
+            if (signaled > 0) {
+                workManager.scheduleWork(new InboundWorker(multipart, callback, receive(zmqSocket)));
+            }
         }
     }
 
@@ -309,7 +350,7 @@ public class ZMQTransport {
         if (!multipart || (multipart && !(payload instanceof List))) {
             zmqSocket.send((byte[]) objectToByteArrayTransformer.transform(payload), 0);
         } else {
-            List messageParts = (List) payload;
+            List<?> messageParts = (List<?>) payload;
 
             for (int i = 0; i < (messageParts.size() - 1); i++) {
                 zmqSocket.send((byte[]) objectToByteArrayTransformer.transform(messageParts.get(i)), ZMQ.SNDMORE);
@@ -331,6 +372,30 @@ public class ZMQTransport {
             return messageParts.get(0);
         } else {
             return messageParts;
+        }
+    }
+
+    /**
+     * Thread factory for unique transport names.
+     */
+    private static class TransportThreadFactory implements ThreadFactory {
+        final ThreadGroup group;
+        final static AtomicInteger poolIndex = new AtomicInteger(1);
+        final AtomicInteger threadIndex = new AtomicInteger(1);
+        final String namePrefix;
+
+        TransportThreadFactory() {
+            SecurityManager s = System.getSecurityManager();
+            group = (s != null)? s.getThreadGroup() :
+                                 Thread.currentThread().getThreadGroup();
+            namePrefix = "mule-zmq-"+poolIndex.getAndIncrement()+'-';
+        }
+
+        public Thread newThread(Runnable r) {
+            Thread t = new Thread(group, r,
+                                  namePrefix + threadIndex.getAndIncrement(),
+                                  0);
+            return t;
         }
     }
 
@@ -362,7 +427,7 @@ public class ZMQTransport {
                                                                                          setAddress(INBOUND_RECEIVER_WORKER_ADDRESS).
                                                                                          setSocketType(ZMQURIConstants.SocketType.REP), zmqContext);
 
-                    while (true)  {
+                    while (!Thread.interrupted())  {
                         Object response = callback.process(ZMQTransport.this.receive(workerSocket));
                         send(workerSocket, response, multipart);
                     }
@@ -395,10 +460,12 @@ public class ZMQTransport {
                 ZMQ.Poller poller = ZMQResourceFactory.createPoller(requestor, zmqContext);
                 started = true;
 
-                while (true) {
-                    poller.poll();
-                    send(outboundEndpoint, receive(requestor), multipart);
-                    send(requestor, receive(outboundEndpoint), multipart);
+                while (!Thread.interrupted()) {
+                    int signaled = poller.poll(pollTimeout.longValue());
+                    if (signaled > 0) {
+                        send(outboundEndpoint, receive(requestor), multipart);
+                        send(requestor, receive(outboundEndpoint), multipart);
+                    }
                 }
 
             } catch (Exception e) {
@@ -425,9 +492,11 @@ public class ZMQTransport {
                 ZMQ.Poller poller = ZMQResourceFactory.createPoller(outboundEndpointSocket, zmqContext);
                 started = true;
 
-                while (true) {
-                    poller.poll();
-                    send(puller, receive(outboundEndpointSocket), multipart);
+                while (!Thread.interrupted()) {
+                    int signaled = poller.poll(pollTimeout.longValue());
+                    if (signaled > 0) {
+                        send(puller, receive(outboundEndpointSocket), multipart);
+                    }
                 }
 
             } catch (Exception e) {
@@ -457,9 +526,11 @@ public class ZMQTransport {
 
                 ZMQ.Poller poller = ZMQResourceFactory.createPoller(source, zmqContext);
 
-                while (true) {
-                    poller.poll();
-                    send(sink, receive(source), multipart);
+                while (!Thread.interrupted()) {
+                    int signaled = poller.poll(pollTimeout.longValue());
+                    if (signaled > 0) {
+                        send(sink, receive(source), multipart);
+                    }
                 }
 
             } catch (Exception e) {

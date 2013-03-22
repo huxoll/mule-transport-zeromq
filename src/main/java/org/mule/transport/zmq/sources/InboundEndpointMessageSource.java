@@ -24,6 +24,7 @@ import org.mule.api.callback.SourceCallback;
 import org.mule.api.construct.FlowConstruct;
 import org.mule.api.construct.FlowConstructAware;
 import org.mule.api.context.MuleContextAware;
+import org.mule.api.lifecycle.Disposable;
 import org.mule.api.lifecycle.Initialisable;
 import org.mule.api.lifecycle.InitialisationException;
 import org.mule.api.lifecycle.Startable;
@@ -40,11 +41,15 @@ import org.mule.transformer.types.DataTypeFactory;
 import org.mule.transport.zmq.ZMQTransport;
 import org.mule.transport.zmq.adapters.ZMQTransportLifecycleAdapter;
 import org.mule.transport.zmq.adapters.ZeroMQTransportConnectionManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 
 
-public class InboundEndpointMessageSource implements Runnable, SourceCallback, FlowConstructAware, MuleContextAware, Initialisable, Startable, Stoppable, MessageSource {
+public class InboundEndpointMessageSource implements Runnable, SourceCallback, FlowConstructAware, MuleContextAware, Initialisable, Disposable, Startable, Stoppable, MessageSource {
+
+    private static Logger logger = LoggerFactory.getLogger(InboundEndpointMessageSource.class);
 
     private Object exchangePattern;
     private Object socketOperation;
@@ -314,6 +319,21 @@ public class InboundEndpointMessageSource implements Runnable, SourceCallback, F
                     castedModuleObject.releaseConnection(new ZeroMQTransportConnectionManager.ConnectionKey(transformedExchangePattern, transformedSocketOperation, transformedAddress, transformedFilter, false, transformedMultipart, transformedIdentity), connection);
                 } catch (Exception _x) {
                 }
+            }
+        }
+    }
+
+    /* (non-Javadoc)
+     * @see org.mule.api.lifecycle.Disposable#dispose()
+     */
+    @Override
+    public void dispose() {
+        if (thread != null) {
+            thread.interrupt();
+            try {
+                thread.join(muleContext.getConfiguration().getShutdownTimeout());
+            } catch (InterruptedException e) {
+                e.printStackTrace();
             }
         }
     }

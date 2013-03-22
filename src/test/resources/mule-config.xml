@@ -10,6 +10,8 @@
         http://www.mulesoft.org/schema/mule/vm http://www.mulesoft.org/schema/mule/vm/current/mule-vm.xsd
         http://www.mulesoft.org/schema/mule/zeromq http://www.mulesoft.org/schema/mule/zeromq/current/mule-zeromq.xsd">
 
+    <zmq:connector name="ZMQ"/>
+
     <flow name="MultiPartMessageOnOutboundFlow">
         <vm:inbound-endpoint path="multipartmessage.onoutbound"/>
         <zmq:outbound-endpoint address="tcp://*:${multipartmessage.onoutbound.flow.port}" multipart="true"
@@ -17,11 +19,12 @@
                                exchange-pattern="push"/>
     </flow>
 
+    <!--
     <flow name="RequestResponseOnOutboundBindFlow">
         <zmq:outbound-endpoint address="tcp://*:${requestresponse.onoutbound.bind.flow.port}" socket-operation="bind"
                                exchange-pattern="request-response"/>
     </flow>
-
+ -->
     <flow name="PullOnOutboundBindFlow">
         <zmq:outbound-endpoint address="tcp://*:${pull.onoutbound.bind.flow.port}" socket-operation="bind"
                                exchange-pattern="pull"/>
@@ -65,11 +68,12 @@
         <vm:outbound-endpoint path="multipartmessage.oninbound"/>
     </flow>
 
+    <!--
     <flow name="RequestResponseOnOutboundConnectFlow">
         <zmq:outbound-endpoint address="tcp://localhost:${requestresponse.onoutbound.connect.flow.port}"
                                socket-operation="connect" exchange-pattern="request-response"/>
     </flow>
-
+ -->
     <flow name="PublishFlow">
         <test:component appendString=" jumps over the lazy dog"/>
         <zmq:outbound-endpoint
@@ -89,6 +93,7 @@
         <test:component/>
     </flow>
 
+    <!--
     <flow name="RequestResponseOnInboundBindFlow">
         <zmq:inbound-endpoint address="tcp://*:${requestresponse.oninbound.bind.flow.port}" socket-operation="bind"
                               exchange-pattern="request-response"/>
@@ -102,7 +107,7 @@
         <byte-array-to-string-transformer/>
         <test:component appendString=" jumps over the lazy dog"/>
     </flow>
-
+ -->
     <flow name="SubscribeOnInboundNoFilterFlow">
         <zmq:inbound-endpoint address="tcp://localhost:${subscribe.oninbound.nofilter.flow.port}"
                               socket-operation="connect" exchange-pattern="subscribe"/>

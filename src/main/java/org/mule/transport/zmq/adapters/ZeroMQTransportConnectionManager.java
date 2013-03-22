@@ -33,8 +33,7 @@ import org.slf4j.LoggerFactory;
 
 
 public class ZeroMQTransportConnectionManager
-        implements Capabilities, ConnectionManager<ZeroMQTransportConnectionManager.ConnectionKey, ZMQTransportLifecycleAdapter>, MuleContextAware, Initialisable {
-
+        implements Capabilities, ConnectionManager<ZeroMQTransportConnectionManager.ConnectionKey, ZMQTransportLifecycleAdapter>, MuleContextAware, Initialisable, Disposable {
 
     private ZMQTransport.ExchangePattern exchangePattern;
     private ZMQTransport.SocketOperation socketOperation;
@@ -172,6 +171,7 @@ public class ZeroMQTransportConnectionManager
 
         public Object makeObject(Object key)
                 throws Exception {
+
             if (!(key instanceof ConnectionKey)) {
                 throw new RuntimeException("Invalid key type");
             }
@@ -188,6 +188,7 @@ public class ZeroMQTransportConnectionManager
 
         public void destroyObject(Object key, Object obj)
                 throws Exception {
+
             if (!(key instanceof ConnectionKey)) {
                 throw new RuntimeException("Invalid key type");
             }
@@ -218,6 +219,7 @@ public class ZeroMQTransportConnectionManager
 
         public void activateObject(Object key, Object obj)
                 throws Exception {
+
             if (!(key instanceof ConnectionKey)) {
                 throw new RuntimeException("Invalid key type");
             }
@@ -335,6 +337,18 @@ public class ZeroMQTransportConnectionManager
             }
         }
 
+    }
+
+    /* (non-Javadoc)
+     * @see org.mule.api.lifecycle.Disposable#dispose()
+     */
+    @Override
+    public void dispose() {
+        try {
+            connectionPool.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
 }

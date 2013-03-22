@@ -26,7 +26,6 @@ public class ZMQTransportLifecycleAdapter
         extends ZMQTransportCapabilitiesAdapter
         implements Disposable, Initialisable, Startable, Stoppable {
 
-
     public void start() throws MuleException {
         super.initialise();
     }
